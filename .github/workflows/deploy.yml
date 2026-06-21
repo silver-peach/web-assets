@@ -10,6 +10,8 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # 💡 過去の成果物をダウンロードするために actions の読み込み権限を追加
+  actions: read
 
 concurrency:
   group: "pages"
@@ -29,26 +31,59 @@ jobs:
       - name: Prepare Assets
         run: |
           mkdir publish_dir
-          cp -r assets/* publish_dir/
+          if [ -d "assets" ] && [ "$(ls -A assets)" ]; then
+            cp -r assets/* publish_dir/
+          fi
+
+      # 💡 developブランチの時だけ、本番(main)の最新成果物をダウンロードして合体させる
+      - name: Download latest main artifact (for develop branch)
+        if: github.ref_name == 'develop'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching latest successful artifact from main branch..."
+          # mainブランチの最新の正常なワークフロー実行IDを取得
+          RUN_ID=$(gh run list --branch main --workflow "${{ github.workflow }}" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          
+          if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+            echo "Found main run ID: $RUN_ID. Downloading artifact..."
+            mkdir main_content
+            # github-pages という名前の成果物をダウンロードして展開
+            gh run download $RUN_ID -n github-pages -D main_content
+            tar -xvf main_content/artifact.tar -C main_content
+            rm -f main_content/artifact.tar
+            
+            # 本番(main)のファイルを最優先で publish_dir にコピー（develop側の変更でmainを上書きさせない）
+            cp -r main_content/* publish_dir/
+            rm -rf main_content
+          else
+            echo "No successful main run found. Skipping merge."
+          fi
 
       # developブランチの時だけ、アプリ名の中に「dev」フォルダを挟み込む
       - name: Inject Dev Directory for Develop Branch
         run: |
           if [ "${{ github.ref_name }}" = "develop" ]; then
             cd publish_dir
-            # assets直下にある各アプリのフォルダ（arcnumなど）をループ処理
+            # assets直下にあった各アプリのフォルダ（arcnumなど）をループ処理
             for dir in */; do
-              if [ -d "$dir" ]; then
+              if [ -d "$dir" ] && [ "$dir" != "temp_dev/" ]; then
                 appName=${dir%/}
                 mkdir -p "temp_dev/$appName/dev"
-                mv "$appName"/* "temp_dev/$appName/dev/"
+                # すでにmain由来のファイルがそこにあれば退避、なければ現在のファイルを移動
+                if [ -d "$appName/dev" ]; then
+                  # すでに main 側の /dev フォルダ等が存在する場合は競合を避けるため退避
+                  mv "$appName"/* "temp_dev/$appName/dev/" 2>/dev/null || true
+                else
+                  mv "$appName"/* "temp_dev/$appName/dev/"
+                fi
                 rm -rf "$appName"
                 mv "temp_dev/$appName" .
-              fi
+              fi  
             done
             rm -rf temp_dev
             cd ..
-          fi
+          fi  
 
       # 「publish_dir」の中身だけをアップロード対象にする
       - name: Upload artifact
