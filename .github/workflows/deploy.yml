@@ -1,0 +1,62 @@
+name: Deploy assetsフォルダ限定・ブランチ別配信
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 公開用の一時フォルダ「publish_dir」を作り、そこにassetsの中身だけを集める
+      - name: Prepare Assets
+        run: |
+          mkdir publish_dir
+          cp -r assets/* publish_dir/
+
+      # developブランチの時だけ、アプリ名の中に「dev」フォルダを挟み込む
+      - name: Inject Dev Directory for Develop Branch
+        run: |
+          if [ "${{ github.ref_name }}" = "develop" ]; then
+            cd publish_dir
+            # assets直下にある各アプリのフォルダ（arcnumなど）をループ処理
+            for dir in */; do
+              if [ -d "$dir" ]; then
+                appName=${dir%/}
+                mkdir -p "temp_dev/$appName/dev"
+                mv "$appName"/* "temp_dev/$appName/dev/"
+                rm -rf "$appName"
+                mv "temp_dev/$appName" .
+              fi
+            done
+            rm -rf temp_dev
+            cd ..
+          fi
+
+      # 「publish_dir」の中身だけをアップロード対象にする
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './publish_dir'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
