@@ -10,7 +10,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  # 💡 過去の成果物をダウンロードするために actions の読み込み権限を追加
+  # 過去の成果物をダウンロードするために actions の読み込み権限を追加
   actions: read
 
 concurrency:
@@ -27,65 +27,107 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 公開用の一時フォルダ「publish_dir」を作り、そこにassetsの中身だけを集める
-      - name: Prepare Assets
-        run: |
-          mkdir publish_dir
-          if [ -d "assets" ] && [ "$(ls -A assets)" ]; then
-            cp -r assets/* publish_dir/
-          fi
-
-      # 💡 developブランチの時だけ、本番(main)の最新成果物をダウンロードして合体させる
-      - name: Download latest main artifact (for develop branch)
-        if: github.ref_name == 'develop'
+      # 💡 直前の「成功したデプロイ」（mainでもdevelopでも問わない）の成果物を取得する
+      # これが「今まで配信していたサイト全体」のベースになる
+      - name: Download previous deployment artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Fetching latest successful artifact from main branch..."
-          # mainブランチの最新の正常なワークフロー実行IDを取得
-          RUN_ID=$(gh run list --branch main --workflow "${{ github.workflow }}" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
-          
+          echo "Fetching the last successful artifact from this workflow..."
+          RUN_ID=$(gh run list --workflow "${{ github.workflow }}" --status success --limit 1 --json databaseId | jq -r '.[0].databaseId' 2>/dev/null || echo "")
+
           if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
-            echo "Found main run ID: $RUN_ID. Downloading artifact..."
-            mkdir main_content
-            # github-pages という名前の成果物をダウンロードして展開
-            gh run download $RUN_ID -n github-pages -D main_content
-            tar -xvf main_content/artifact.tar -C main_content
-            rm -f main_content/artifact.tar
-            
-            # 本番(main)のファイルを最優先で publish_dir にコピー（develop側の変更でmainを上書きさせない）
-            cp -r main_content/* publish_dir/
-            rm -rf main_content
+            echo "Found previous run ID: $RUN_ID. Downloading artifact..."
+            mkdir -p prev_content
+            if gh run download "$RUN_ID" -n github-pages -D prev_content; then
+              if [ -f "prev_content/artifact.tar" ]; then
+                tar -xf prev_content/artifact.tar -C prev_content
+                rm -f prev_content/artifact.tar
+              fi
+            else
+              echo "Could not download previous artifact (期限切れ等). Skipping merge."
+              rm -rf prev_content
+            fi
           else
-            echo "No successful main run found. Skipping merge."
+            echo "No previous successful run found. Skipping merge."
           fi
 
-      # developブランチの時だけ、アプリ名の中に「dev」フォルダを挟み込む
-      - name: Inject Dev Directory for Develop Branch
+      # 💡 「前回配信していたサイト全体」をベースにコピーし、
+      # 今回pushされたブランチに対応する部分だけを最新化する。
+      # → mainの更新がdevelopの/dev/を壊さず、developの更新もmainの本番ファイルを壊さない。
+      # → assets/からアプリフォルダが削除された場合は、該当ブランチのセクションをPagesからも削除する。
+      - name: Build publish_dir (merge current branch into previous site)
         run: |
-          if [ "${{ github.ref_name }}" = "develop" ]; then
-            cd publish_dir
-            # assets直下にあった各アプリのフォルダ（arcnumなど）をループ処理
-            for dir in */; do
-              if [ -d "$dir" ] && [ "$dir" != "temp_dev/" ]; then
-                appName=${dir%/}
-                mkdir -p "temp_dev/$appName/dev"
-                # すでにmain由来のファイルがそこにあれば退避、なければ現在のファイルを移動
-                if [ -d "$appName/dev" ]; then
-                  # すでに main 側の /dev フォルダ等が存在する場合は競合を避けるため退避
-                  mv "$appName"/* "temp_dev/$appName/dev/" 2>/dev/null || true
-                else
-                  mv "$appName"/* "temp_dev/$appName/dev/"
-                fi
-                rm -rf "$appName"
-                mv "temp_dev/$appName" .
-              fi  
-            done
-            rm -rf temp_dev
-            cd ..
-          fi  
+          set -e
+          mkdir -p publish_dir
 
-      # 「publish_dir」の中身だけをアップロード対象にする
+          if [ -d "prev_content" ]; then
+            cp -r prev_content/. publish_dir/ 2>/dev/null || true
+          fi
+
+          BRANCH="${{ github.ref_name }}"
+
+          # 現在のassets/配下に存在するアプリ名一覧
+          CURRENT_APPS=""
+          if [ -d "assets" ]; then
+            for appDir in assets/*/; do
+              [ -d "$appDir" ] || continue
+              CURRENT_APPS="$CURRENT_APPS $(basename "$appDir")"
+            done
+          fi
+
+          # 前回までPagesに配信されていたアプリ名一覧
+          PUBLISHED_APPS=""
+          if [ -d "publish_dir" ]; then
+            for appDir in publish_dir/*/; do
+              [ -d "$appDir" ] || continue
+              PUBLISHED_APPS="$PUBLISHED_APPS $(basename "$appDir")"
+            done
+          fi
+
+          # 1. 削除検知: 配信済みだが今のassets/に無いアプリ → このブランチが担当するセクションを削除
+          for appName in $PUBLISHED_APPS; do
+            stillExists=false
+            for cur in $CURRENT_APPS; do
+              if [ "$cur" = "$appName" ]; then
+                stillExists=true
+                break
+              fi
+            done
+
+            if [ "$stillExists" = false ]; then
+              if [ "$BRANCH" = "main" ]; then
+                echo "assets/$appName が削除されたため、本番側ファイルを削除します（dev/は維持）"
+                find "publish_dir/$appName" -mindepth 1 -maxdepth 1 ! -name "dev" -exec rm -rf {} + 2>/dev/null || true
+              elif [ "$BRANCH" = "develop" ]; then
+                echo "assets/$appName が削除されたため、dev/ファイルを削除します"
+                rm -rf "publish_dir/$appName/dev"
+              fi
+
+              # 本番・dev両方とも空になったら、アプリフォルダ自体を削除
+              if [ -d "publish_dir/$appName" ] && [ -z "$(ls -A "publish_dir/$appName" 2>/dev/null)" ]; then
+                rm -rf "publish_dir/$appName"
+              fi
+            fi
+          done
+
+          # 2. 更新処理: 現在のassets/にあるアプリを最新化
+          for appName in $CURRENT_APPS; do
+            appDir="assets/$appName"
+            mkdir -p "publish_dir/$appName"
+
+            if [ "$BRANCH" = "main" ]; then
+              # 本番用ファイル（ja/, en/, config.json等）だけを最新化。dev/ には触らない
+              find "publish_dir/$appName" -mindepth 1 -maxdepth 1 ! -name "dev" -exec rm -rf {} +
+              cp -r "$appDir"/* "publish_dir/$appName/" 2>/dev/null || true
+            elif [ "$BRANCH" = "develop" ]; then
+              # dev/ フォルダの中身だけを最新化。本番側のファイルは一切触らない
+              rm -rf "publish_dir/$appName/dev"
+              mkdir -p "publish_dir/$appName/dev"
+              cp -r "$appDir"/* "publish_dir/$appName/dev/" 2>/dev/null || true
+            fi
+          done
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
