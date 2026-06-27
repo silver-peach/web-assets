@@ -1,6 +1,12 @@
 {
-  "eula_version": "0.9.1",
-  "eula_url": "https://github.io",
+  "eula_version": "0.0.0",
+  "eula_urls": {
+    "ja": "ja/eula.md",
+    "en": "en/eula.md"
+  },
   "pp_version": "0.9.1",
-  "pp_url": "https://github.io"
+  "pp_urls": {
+    "ja": "ja/pp.md",
+    "en": "en/pp.md"
+  }
 }

@@ -19,11 +19,11 @@ web-assets (リポジトリ直下)
 │   └── arcnum/                   # 各アプリ名のフォルダを作成
 │       ├── config.json           # アプリの設定・バージョン管理用JSON
 │       ├── ja/
-│       │   ├── eula.html         # 利用規約本文
-│       │   └── pp.html           # プライバシーポリシー本文
+│       │   ├── eula.md           # 利用規約本文
+│       │   └── pp.md             # プライバシーポリシー本文
 │       └── en/
-│           ├── eula.html         # 利用規約本文
-│           └── pp.html           # プライバシーポリシー本文
+│           ├── eula.md           # 利用規約本文
+│           └── pp.md             # プライバシーポリシー本文
 └── README.md                     # 本ドキュメント
 ```
 
@@ -35,13 +35,13 @@ web-assets (リポジトリ直下)
 {
   "eula_version": "1.0.0",
   "eula_urls": {
-    "ja": "ja/eula.html",
-    "en": "en/eula.html"
+    "ja": "ja/eula.md",
+    "en": "en/eula.md"
   },
   "pp_version": "1.0.0",
   "pp_urls": {
-    "ja": "ja/pp.html",
-    "en": "en/pp.html"
+    "ja": "ja/pp.md",
+    "en": "en/pp.md"
   }
 }
 ```
@@ -56,15 +56,15 @@ web-assets (リポジトリ直下)
 本番アプリが一生見に行く固定URLです。絶対に直接テストなどで数値を汚さないでください。
 
 * **規約・設定JSON**: `https://silver-peach.github.io/web-assets/arcnum/config.json`
-* **利用規約HTML**: `https://silver-peach.github.io/web-assets/arcnum/ja/eula.html`
-* **プライバシーポリシーHTML**: `https://silver-peach.github.io/web-assets/arcnum/en/pp.html`
+* **利用規約MD**: `https://silver-peach.github.io/web-assets/arcnum/ja/eula.md`
+* **プライバシーポリシーMD**: `https://silver-peach.github.io/web-assets/arcnum/en/pp.md`
 
 ### 2. develop ブランチ（開発・テスト環境用）
 手元の開発PCやシミュレータでテストするためのURLです。自動でパスの途中に `/dev/` が挟み込まれます。
 
 * **規約・設定JSON**: `https://silver-peach.github.io/web-assets/arcnum/dev/config.json`
-* **利用規約HTML**: `https://silver-peach.github.io/web-assets/arcnum/dev/en/eula.html`
-* **プライバシーポリシーHTML**: `https://silver-peach.github.io/web-assets/arcnum/dev/ja/pp.html`
+* **利用規約MD**: `https://silver-peach.github.io/web-assets/arcnum/dev/en/eula.md`
+* **プライバシーポリシーMD**: `https://silver-peach.github.io/web-assets/arcnum/dev/ja/pp.md`
 
 ---
 
